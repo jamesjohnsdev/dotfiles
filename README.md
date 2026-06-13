@@ -29,8 +29,13 @@ sudo pacman -S stow
 Clone the repository:
 
 ```sh
-git clone https://github.com/hamst/dotfiles.git ~/dotfiles
+# You must use the `--recurse-submodules` flag otherwise configs won't be filled
+# `-j8` is an optional performance optimization
+git clone --recurse-submodules -j8 https://github.com/hamst/dotfiles.git ~/dotfiles
 cd ~/dotfiles
+
+# If you didn't use the `--recurse-submodules` flag initially, intiate submodules
+git submodule update --init --recursive
 ```
 
 Stow the desired packages:
