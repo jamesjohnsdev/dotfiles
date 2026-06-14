@@ -1,6 +1,9 @@
 # If you come from bash you might have to change your $PATH.
 # export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
+# Source cross-shell env vars from bash config
+source ~/.bashrc
+
 # Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
 
@@ -103,6 +106,9 @@ source $ZSH/oh-my-zsh.sh
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 
+# Aliases (after OMZ so they take precedence)
+source ~/.config/shell/aliases.sh
+
 # GO
 export PATH="$PATH:/usr/local/go/bin:~/go/bin"
 
@@ -125,3 +131,5 @@ alias clip='xclip -selection clipboard'
 export FUNCTIONS_CORE_TOOLS_TELEMETRY_OUTPUT=true
 
 alias lg="lazygit"
+
+
