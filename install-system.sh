@@ -16,4 +16,10 @@ if [ -d "$DOTFILES/.config/udev/rules.d" ]; then
     sudo udevadm control --reload-rules
 fi
 
+# Brave browser policies (applies to both Brave and Brave Origin Beta)
+if [ -d "$DOTFILES/.config/brave/policies/managed" ]; then
+    sudo mkdir -p /etc/brave/policies/managed
+    sudo cp -v "$DOTFILES"/.config/brave/policies/managed/*.json /etc/brave/policies/managed/
+fi
+
 echo "Done. Reboot or reload modules for changes to take effect."
