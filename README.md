@@ -54,3 +54,18 @@ Run the script to copy them:
 ```sh
 ./install-system.sh
 ```
+
+## Installing Other things
+
+These items aren't automatically set up at the moment.
+
+### pnpm
+
+```sh
+# this relies on `npm` already being installed
+npm install --global corepack@latest
+# if using mise only
+mise reshim
+# install pnpm
+corepack enable pnpm
+```
