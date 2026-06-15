@@ -45,3 +45,12 @@ stow package
 ## or just the whole directory at once
 stow .
 ```
+
+## System configs (requires root)
+
+Some configs (kernel module params, udev rules) live in `/etc/` and aren't managed by Stow.
+Run the script to copy them:
+
+```sh
+./install-system.sh
+```
