@@ -115,6 +115,9 @@ export PATH="$PATH:/usr/local/go/bin:~/go/bin"
 # dotnet
 export PATH="$PATH:$HOME/.dotnet"
 
+# mise shims (includes corepack and other global npm bins)
+export PATH="$HOME/.local/share/mise/shims:$PATH"
+
 # pnpm
 export PNPM_HOME="/home/james/.local/share/pnpm"
 case ":$PATH:" in
