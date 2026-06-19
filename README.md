@@ -46,6 +46,13 @@ stow package
 stow .
 ```
 
+Alternatively, a nice way to setup (and ongoing as long as everything is committed)
+
+```sh
+stow --adopt .
+git restore .
+```
+
 ## System configs (requires root)
 
 Some configs (kernel module params, udev rules) live in `/etc/` and aren't managed by Stow.
