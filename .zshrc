@@ -23,6 +23,8 @@ export PATH="$PATH:/usr/local/go/bin:$HOME/.go/bin"
 
 # dotnet
 export PATH="$PATH:$HOME/.dotnet"
+export PATH="$PATH:$HOME/.dotnet/tools"
+export DOTNET_CLI_TELEMETRY_OPTOUT=true
 
 # mise shims (includes corepack and other global npm bins)
 export PATH="$HOME/.local/share/mise/shims:$PATH"
