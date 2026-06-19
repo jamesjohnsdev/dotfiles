@@ -19,7 +19,7 @@ if command -v fzf &> /dev/null; then source <(fzf --zsh) 2>/dev/null; fi
 source ~/.config/shell/aliases.sh
 
 # GO
-export PATH="$PATH:/usr/local/go/bin:$HOME/go/bin"
+export PATH="$PATH:/usr/local/go/bin:$HOME/.go/bin"
 
 # dotnet
 export PATH="$PATH:$HOME/.dotnet"
