@@ -44,11 +44,7 @@ esac
 
 # rider
 export PATH="$PATH:/home/james/rider/bin"
-alias clip='xclip -selection clipboard'
 
 # azure
 export FUNCTIONS_CORE_TOOLS_TELEMETRY_OUTPUT=true
-
-alias lg="lazygit"
-
 

@@ -56,3 +56,8 @@ alias g='git'
 alias gcm='git commit -m'
 alias gcam='git commit -a -m'
 alias gcad='git commit -a --amend'
+
+# Misc programs
+alias lg="lazygit"
+alias nv="nvim"
+alias clip='wl-copy'
