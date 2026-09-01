@@ -9,8 +9,11 @@ export SUDO_EDITOR="$EDITOR"
 export OMARCHY_PATH=$HOME/.local/share/omarchy
 export PATH=$OMARCHY_PATH/bin:$PATH:$HOME/.local/bin
 
+# Completion
+autoload -Uz compinit
+compinit
+
 # Tool initialization
-if command -v mise &> /dev/null; then eval "$(mise activate zsh)"; fi
 if [[ ${TERM:-} != "dumb" ]] && command -v starship &> /dev/null; then eval "$(starship init zsh)"; fi
 if command -v zoxide &> /dev/null; then eval "$(zoxide init zsh)"; fi
 if command -v fzf &> /dev/null; then source <(fzf --zsh) 2>/dev/null; fi
@@ -23,9 +26,6 @@ export PATH="$PATH:/usr/local/go/bin:$HOME/go/bin"
 
 # dotnet
 export PATH="$PATH:$HOME/.dotnet"
-
-# mise shims (includes corepack and other global npm bins)
-export PATH="$HOME/.local/share/mise/shims:$PATH"
 
 # pnpm
 export PNPM_HOME="/home/james/.local/share/pnpm"
@@ -44,4 +44,5 @@ export FUNCTIONS_CORE_TOOLS_TELEMETRY_OUTPUT=true
 
 alias lg="lazygit"
 
-
+# database strings
+export KUMO_PROD_POSTGRES='postgresql://read_only@kumo-prod-postgresql.postgres.database.azure.com:5432/kumo_production'
