@@ -46,3 +46,4 @@ alias lg="lazygit"
 
 # database strings
 export KUMO_PROD_POSTGRES='postgresql://read_only@kumo-prod-postgresql.postgres.database.azure.com:5432/kumo_production'
+source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
