@@ -42,7 +42,7 @@ alias ....='cd ../../..'
 
 # Tools
 alias c='opencode'
-alias cx='printf "\033[2J\033[3J\033[H" && claude --permission-mode bypassPermissions'
+alias cx='printf "\033[2J\033[3J\033[H" && claude'
 alias d='docker'
 alias r='rails'
 alias t='tmux attach || tmux new -s Work'
