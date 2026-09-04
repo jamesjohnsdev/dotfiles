@@ -18,6 +18,9 @@ if [[ ${TERM:-} != "dumb" ]] && command -v starship &> /dev/null; then eval "$(s
 if command -v zoxide &> /dev/null; then eval "$(zoxide init zsh)"; fi
 if command -v fzf &> /dev/null; then source <(fzf --zsh) 2>/dev/null; fi
 
+# Omarchy fns (tdl, tdlm, tsl, worktrees, etc — bash-authored but zsh-compatible)
+for f in "$OMARCHY_PATH"/default/bash/fns/*; do source "$f"; done
+
 # Aliases
 source ~/.config/shell/aliases.sh
 
