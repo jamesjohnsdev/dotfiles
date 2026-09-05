@@ -25,7 +25,7 @@ for f in "$OMARCHY_PATH"/default/bash/fns/*; do source "$f"; done
 source ~/.config/shell/aliases.sh
 
 # GO
-export PATH="$PATH:/usr/local/go/bin:$HOME/.go/bin"
+export PATH="$PATH:$HOME/.go/bin"
 
 # dotnet
 export PATH="$PATH:$HOME/.dotnet"
