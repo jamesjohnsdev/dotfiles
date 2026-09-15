@@ -41,14 +41,14 @@ func Stage1Plan(sys system.System, cfg config.Config) ([]plan.Action, error) {
 			Description: fmt.Sprintf("back up %s to %s, then replace with the official Arch geo-mirror", mirrorlistPath, backupPath),
 			Destructive: true,
 			Apply: func(sys system.System) error {
-				current, err := sys.ReadFile(mirrorlistPath)
-				if err != nil {
-					return err
-				}
-				if err := sys.WriteFile(backupPath, current, 0o644); err != nil {
+				// /etc/pacman.d/mirrorlist is root-owned: both the backup
+				// and the replacement need the privileged Sudo* variants,
+				// not the plain ones (which run as the invoking user and
+				// fail with a plain permission error here).
+				if err := sys.SudoCopyFile(mirrorlistPath, backupPath); err != nil {
 					return fmt.Errorf("backing up mirrorlist: %w", err)
 				}
-				if err := sys.WriteFile(mirrorlistPath, officialGeoMirror, 0o644); err != nil {
+				if err := sys.SudoWriteFile(mirrorlistPath, officialGeoMirror, 0o644); err != nil {
 					return fmt.Errorf("writing new mirrorlist: %w", err)
 				}
 				return nil

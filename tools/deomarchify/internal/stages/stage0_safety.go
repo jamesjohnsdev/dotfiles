@@ -62,7 +62,30 @@ func Stage0Plan(sys system.System, cfg config.Config) ([]plan.Action, error) {
 		}
 	}
 
-	protect := DependenciesToProtect(infos, cfg.OmarchyPackages)
+	candidates := DependenciesToProtect(infos, cfg.OmarchyPackages)
+
+	// A name in another package's Depends On isn't necessarily installed
+	// under that exact name - it can be satisfied by a provider instead
+	// (confirmed on a real machine: omarchy depends on "quickshell", but
+	// what's actually installed is "quickshell-git", which provides it).
+	// `pacman -D --asexplicit` fails its entire argument list over one
+	// name that isn't a real installed package, so every candidate needs
+	// resolving to what's actually installed first - and it has to resolve
+	// to the *real* providing package, not just get dropped, or the thing
+	// actually satisfying the dependency (quickshell-git here) would stay
+	// unprotected from orphan removal despite the whole point of this stage.
+	installed, err := pacman.AllInstalled(sys)
+	if err != nil {
+		return nil, fmt.Errorf("listing installed packages: %w", err)
+	}
+	protect, unresolved := pacman.ResolveInstalledNames(candidates, installed)
+
+	if len(unresolved) > 0 {
+		actions = append(actions, plan.Action{
+			Description: fmt.Sprintf("WARNING: %d dependency name(s) resolve to nothing installed and nothing providing them, so they can't be protected from orphan removal - investigate manually before proceeding: %v", len(unresolved), unresolved),
+			Apply:       func(sys system.System) error { return nil },
+		})
+	}
 
 	actions = append(actions, plan.Action{
 		Description: "snapshot root filesystem via snapper before any changes",

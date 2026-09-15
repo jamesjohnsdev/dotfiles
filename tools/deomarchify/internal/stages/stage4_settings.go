@@ -59,6 +59,21 @@ func CategorizeSettingsFile(path string) FileCategory {
 	return CategoryAdopt
 }
 
+// packagedBinPrefix is where every omarchy-* command lived while the
+// omarchy package owned it - what a kept systemd unit's ExecStart (and
+// anything else in the file) needs rewritten away from.
+const packagedBinPrefix = "/usr/bin/omarchy-"
+
+// RewriteUnitExecPaths rewrites references to the package-owned
+// /usr/bin/omarchy-* commands to the vendored checkout's bin/ directory
+// instead. Pure string transform: copying a kept systemd --user unit
+// verbatim (confirmed on a real machine) leaves ExecStart pointing at a
+// path the omarchy package owned and Stage 3 already removed, crash-looping
+// the unit (203/EXEC) the moment it (re)starts.
+func RewriteUnitExecPaths(content, vendorDir string) string {
+	return strings.ReplaceAll(content, packagedBinPrefix, vendorDir+"/bin/omarchy-")
+}
+
 func Stage4Plan(sys system.System, cfg config.Config) ([]plan.Action, error) {
 	_, ok, err := pacman.QueryInfo(sys, "omarchy-settings")
 	if err != nil {
@@ -100,7 +115,11 @@ func Stage4Plan(sys system.System, cfg config.Config) ([]plan.Action, error) {
 			Description: fmt.Sprintf("back up %d omarchy-settings files (sysctl, systemd drop-ins, docker/mkinitcpio/limine/NetworkManager config, SDDM/Plymouth theme, fonts, sudoers, etc.) to %s before removal", len(adopt), backupDir),
 			Apply: func(sys system.System) error {
 				for _, f := range adopt {
-					if err := sys.CopyFile(f, backupDir+f, 0o644); err != nil {
+					// Sudo, not plain CopyFile: some of these (notably
+					// /etc/sudoers.d/*, mode 0440) aren't even readable by
+					// the invoking user, let alone writable at their
+					// destination if it were a root path.
+					if err := sys.SudoCopyFile(f, backupDir+f); err != nil {
 						return fmt.Errorf("backing up %s: %w", f, err)
 					}
 				}
@@ -116,7 +135,18 @@ func Stage4Plan(sys system.System, cfg config.Config) ([]plan.Action, error) {
 			Apply: func(sys system.System) error {
 				for _, f := range keepUnits {
 					base := f[strings.LastIndex(f, "/")+1:]
-					if err := sys.CopyFile(f, userServiceDir+"/"+base, 0o644); err != nil {
+					content, err := sys.ReadFile(f)
+					if err != nil {
+						return fmt.Errorf("reading %s: %w", f, err)
+					}
+					// Confirmed on a real machine: copying the unit file
+					// verbatim leaves ExecStart=/usr/bin/omarchy-* pointing
+					// at a path the omarchy package (removed in Stage 3)
+					// owned - the unit crash-loops (203/EXEC, "no such
+					// file") the moment it's (re)started, since only the
+					// vendored copy still exists.
+					rewritten := RewriteUnitExecPaths(content, cfg.VendorDir)
+					if err := sys.WriteFile(userServiceDir+"/"+base, rewritten, 0o644); err != nil {
 						return fmt.Errorf("copying %s: %w", f, err)
 					}
 				}
@@ -159,7 +189,13 @@ func Stage4Plan(sys system.System, cfg config.Config) ([]plan.Action, error) {
 			Destructive: true,
 			Apply: func(sys system.System) error {
 				for _, f := range adopt {
-					if err := sys.CopyFile(backupDir+f, f, 0o644); err != nil {
+					// Sudo: f is a root-owned path (/etc, /usr/...), and
+					// SudoCopyFile's `cp -a` restores the original
+					// mode/ownership it captured at backup time rather
+					// than imposing a fixed one - required for files like
+					// sudoers.d entries, which sudo ignores outright if
+					// their permissions aren't exactly right.
+					if err := sys.SudoCopyFile(backupDir+f, f); err != nil {
 						return fmt.Errorf("restoring %s: %w", f, err)
 					}
 				}

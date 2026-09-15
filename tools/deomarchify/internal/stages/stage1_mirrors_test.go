@@ -62,6 +62,26 @@ func TestStage1Plan_PlansBackupAndReplaceWhenOmarchyMirror(t *testing.T) {
 		t.Errorf("backup not written")
 	}
 
+	// /etc/pacman.d/mirrorlist is root-owned: both the backup and the
+	// replacement must go through the privileged Sudo* path, not the plain
+	// one (which runs as the invoking user and fails with a permission
+	// error against a real /etc path - confirmed on a real machine).
+	sawSudoCopy, sawSudoWrite := false, false
+	for _, r := range fake.Ran {
+		if r == "sudo:copy-file "+mirrorlistPath+" "+mirrorlistPath+".pre-deomarchify.bak" {
+			sawSudoCopy = true
+		}
+		if r == "sudo:write-file "+mirrorlistPath {
+			sawSudoWrite = true
+		}
+	}
+	if !sawSudoCopy {
+		t.Errorf("expected a privileged (sudo) copy of the mirrorlist backup, got Ran=%v", fake.Ran)
+	}
+	if !sawSudoWrite {
+		t.Errorf("expected a privileged (sudo) write of the new mirrorlist, got Ran=%v", fake.Ran)
+	}
+
 	if err := actions[1].Apply(fake); err != nil {
 		t.Fatalf("apply pacman -Syy: %v", err)
 	}

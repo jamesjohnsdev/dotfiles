@@ -41,6 +41,22 @@ type System interface {
 	// Glob returns paths matching a filepath.Match-style pattern.
 	Glob(pattern string) ([]string, error)
 
+	// Sudo* variants run as root via `sudo`, for paths the invoking user
+	// can't write (or, for SudoCopyFile, can't necessarily even read - e.g.
+	// mode-0440 sudoers.d files) - most of /etc and /usr. Every other
+	// method above operates as the invoking user; using the wrong one for
+	// a root-owned path fails with a plain permission error rather than
+	// prompting for a password, which is what surfaced this split in the
+	// first place. SudoCopyFile uses `cp -a` specifically to preserve the
+	// source's mode/ownership rather than imposing a fixed one - some
+	// adopted system files (sudoers.d) are silently ignored by their
+	// consumer if their permissions change.
+	SudoWriteFile(path string, content string, perm os.FileMode) error
+	SudoCopyFile(src, dst string) error
+	SudoSymlink(target, linkPath string) error
+	SudoRemove(path string) error
+	SudoMkdirAll(path string) error
+
 	// Now returns the current time as an RFC3339 string, for log/checkpoint
 	// timestamps. Abstracted so tests get deterministic output.
 	Now() string
@@ -84,7 +100,35 @@ func (r *Real) WriteFile(path string, content string, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(content), perm)
+	return writeFileForce(path, []byte(content), perm)
+}
+
+// writeFileForce writes path even when it already exists with a mode
+// lacking the owner-write bit - which is exactly what a file copied out of
+// a package directory looks like (installed scripts are commonly mode 0555,
+// no write bit at all). os.WriteFile ignores its perm argument for a file
+// that already exists (perm only applies at creation), so a plain
+// os.WriteFile fails with a permission error in that case despite the
+// caller owning the file. Chmod first (best-effort: an ENOENT here just
+// means the file doesn't exist yet, which is fine) so the write - and any
+// later write to the same path - succeeds regardless of what mode the
+// source file had.
+func writeFileForce(path string, data []byte, perm os.FileMode) error {
+	// If path is currently a symlink (e.g. left over from an older,
+	// pre-fix vendoring attempt that recreated symlinks instead of
+	// dereferencing them), os.Chmod would follow it and try to chmod
+	// whatever it points at - which, for a symlink into /usr/bin/..., is a
+	// root-owned file the invoking user can't chmod (EPERM, confirmed on a
+	// real machine). Remove it first so what follows always creates a real
+	// file at path, never chmods through a stale symlink.
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	} else if err := os.Chmod(path, perm); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.WriteFile(path, data, perm)
 }
 
 func (r *Real) FileExists(path string) bool {
@@ -139,14 +183,30 @@ func (r *Real) CopyTree(src, dst string) error {
 		if info.IsDir() {
 			return os.MkdirAll(target, info.Mode())
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			linkTarget, err := os.Readlink(path)
+		// Dereference symlinks into real copies rather than recreating
+		// them: confirmed on a real machine that every one of
+		// /usr/share/omarchy/bin's 428 entries is a symlink into
+		// /usr/bin/omarchy-* (owned by the very package this tree is being
+		// vendored away from). Preserving the symlink as-is would leave
+		// the "vendored" checkout still silently dependent on the package,
+		// and dangling the moment it's removed - the opposite of the
+		// point of this step. os.ReadFile below (inside CopyFile) follows
+		// symlinks transparently, so this just resolves the real mode and
+		// falls through to the regular-file copy path.
+		mode := info.Mode()
+		if mode&os.ModeSymlink != 0 {
+			resolved, err := os.Stat(path)
 			if err != nil {
-				return err
+				return fmt.Errorf("resolving symlink %s: %w", path, err)
 			}
-			return os.Symlink(linkTarget, target)
+			mode = resolved.Mode()
 		}
-		return r.CopyFile(path, target, info.Mode())
+		// Add the owner-write bit rather than mirroring the source mode
+		// exactly: installed package files are commonly 0555 (no write bit
+		// at all), and the whole point of vendoring is handing over a
+		// checkout the user can actually edit, not a faithful read-only
+		// replica of the package.
+		return r.CopyFile(path, target, mode|0o200)
 	})
 }
 
@@ -158,11 +218,70 @@ func (r *Real) CopyFile(src, dst string, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(dst, b, perm)
+	return writeFileForce(dst, b, perm)
 }
 
 func (r *Real) Glob(pattern string) ([]string, error) {
 	return filepath.Glob(pattern)
+}
+
+// runSudo is Run with a "sudo " prefix and a uniform error-or-nonzero-exit
+// check, since every Sudo* method below needs exactly that.
+func (r *Real) runSudo(args ...string) error {
+	res, err := r.Run("sudo", args...)
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("sudo %s failed: %s", strings.Join(args, " "), res.Stderr)
+	}
+	return nil
+}
+
+func (r *Real) SudoWriteFile(path string, content string, perm os.FileMode) error {
+	tmp, err := os.CreateTemp("", "deomarchify-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := r.runSudo("mkdir", "-p", filepath.Dir(path)); err != nil {
+		return err
+	}
+	return r.runSudo("install", "-m", fmt.Sprintf("%03o", perm), tmpPath, path)
+}
+
+func (r *Real) SudoCopyFile(src, dst string) error {
+	if err := r.runSudo("mkdir", "-p", filepath.Dir(dst)); err != nil {
+		return err
+	}
+	// -a preserves mode/ownership/timestamps from src, which matters for
+	// files like /etc/sudoers.d/* that sudo refuses to read at all if
+	// their permissions change.
+	return r.runSudo("cp", "-a", src, dst)
+}
+
+func (r *Real) SudoSymlink(target, linkPath string) error {
+	return r.runSudo("ln", "-sfn", target, linkPath)
+}
+
+func (r *Real) SudoRemove(path string) error {
+	// -r as well as -f: some of what this removes turns out to be a
+	// directory, not a file (confirmed on a real machine - an
+	// omarchy-upgrade-to-quattro backup of a directory-based app config,
+	// e.g. mako's), and plain `rm -f` refuses a directory outright.
+	return r.runSudo("rm", "-rf", path)
+}
+
+func (r *Real) SudoMkdirAll(path string) error {
+	return r.runSudo("mkdir", "-p", path)
 }
 
 func (r *Real) Now() string {

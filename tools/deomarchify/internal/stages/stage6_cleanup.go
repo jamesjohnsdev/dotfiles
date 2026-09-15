@@ -36,7 +36,11 @@ func Stage6Plan(sys system.System, cfg config.Config) ([]plan.Action, error) {
 			actions = append(actions, plan.Action{
 				Description: fmt.Sprintf("remove leftover upgrade-backup file %s", p),
 				Apply: func(sys system.System) error {
-					return sys.Remove(p)
+					// Sudo uniformly: one of CleanupGlobs' patterns is
+					// under /etc (root-owned); running a root rm against
+					// a user-owned match is harmless, so there's no need
+					// to branch on which glob a given match came from.
+					return sys.SudoRemove(p)
 				},
 			})
 		}

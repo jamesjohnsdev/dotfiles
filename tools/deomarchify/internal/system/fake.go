@@ -133,6 +133,39 @@ func (f *Fake) copySourceFiles(prefix string) map[string]string {
 	return out
 }
 
+// Sudo* variants behave identically to their non-privileged counterparts
+// here (there's no real privilege boundary in an in-memory fake), but each
+// records a "sudo:<op> <path>" entry in Ran so a test can assert a given
+// path was actually written through the privileged path - the exact
+// distinction whose absence caused the real permission-denied failure this
+// split exists to prevent.
+func (f *Fake) SudoWriteFile(path string, content string, perm os.FileMode) error {
+	f.Ran = append(f.Ran, "sudo:write-file "+path)
+	return f.WriteFile(path, content, perm)
+}
+
+func (f *Fake) SudoCopyFile(src, dst string) error {
+	f.Ran = append(f.Ran, "sudo:copy-file "+src+" "+dst)
+	return f.CopyFile(src, dst, 0o644)
+}
+
+func (f *Fake) SudoSymlink(target, linkPath string) error {
+	f.Ran = append(f.Ran, "sudo:symlink "+linkPath)
+	return f.Symlink(target, linkPath)
+}
+
+func (f *Fake) SudoRemove(path string) error {
+	f.Ran = append(f.Ran, "sudo:remove "+path)
+	delete(f.Files, path)
+	delete(f.Symlinks, path)
+	return nil
+}
+
+func (f *Fake) SudoMkdirAll(path string) error {
+	f.Ran = append(f.Ran, "sudo:mkdir "+path)
+	return nil
+}
+
 func (f *Fake) CopyFile(src, dst string, perm os.FileMode) error {
 	c, ok := f.Files[src]
 	if !ok {

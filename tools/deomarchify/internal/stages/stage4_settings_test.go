@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hamst/dotfiles/tools/deomarchify/internal/config"
+	"github.com/hamst/dotfiles/tools/deomarchify/internal/plan"
 	"github.com/hamst/dotfiles/tools/deomarchify/internal/system"
 )
 
@@ -93,10 +94,93 @@ func TestStage4Plan_BackupHappensBeforeRemovalAndRestoreAfter(t *testing.T) {
 		t.Errorf("file not restored correctly, got %q", fake.Files["/etc/sysctl.d/99-omarchy-sysctl.conf"])
 	}
 
+	// Both the backup (source may be unreadable to the invoking user, e.g.
+	// mode-0440 sudoers.d files) and the restore (destination is a
+	// root-owned /etc path) must go through the privileged path - confirmed
+	// on a real machine that the plain CopyFile variant fails here.
+	sawSudoBackup, sawSudoRestore := false, false
+	for _, r := range fake.Ran {
+		if r == "sudo:copy-file /etc/sysctl.d/99-omarchy-sysctl.conf /home/james/.deomarchify/settings-backup/etc/sysctl.d/99-omarchy-sysctl.conf" {
+			sawSudoBackup = true
+		}
+		if r == "sudo:copy-file /home/james/.deomarchify/settings-backup/etc/sysctl.d/99-omarchy-sysctl.conf /etc/sysctl.d/99-omarchy-sysctl.conf" {
+			sawSudoRestore = true
+		}
+	}
+	if !sawSudoBackup {
+		t.Errorf("expected a privileged (sudo) backup copy, got Ran=%v", fake.Ran)
+	}
+	if !sawSudoRestore {
+		t.Errorf("expected a privileged (sudo) restore copy, got Ran=%v", fake.Ran)
+	}
+
 	// /etc/skel/... must never appear in the adopt set.
 	for _, a := range actions {
 		if strings.Contains(a.Description, "etc/skel") {
 			t.Errorf("skel path leaked into an action description: %s", a.Description)
 		}
+	}
+}
+
+func TestRewriteUnitExecPaths(t *testing.T) {
+	content := `[Unit]
+Description=Lock Omarchy before suspend
+
+[Service]
+ExecStart=/usr/bin/omarchy-system-sleep-monitor
+Restart=always
+`
+	got := RewriteUnitExecPaths(content, "/home/james/dotfiles-omarchy")
+	want := `[Unit]
+Description=Lock Omarchy before suspend
+
+[Service]
+ExecStart=/home/james/dotfiles-omarchy/bin/omarchy-system-sleep-monitor
+Restart=always
+`
+	if got != want {
+		t.Errorf("RewriteUnitExecPaths =\n%s\nwant\n%s", got, want)
+	}
+}
+
+// This reproduces the exact real-world failure: a kept systemd --user unit
+// copied verbatim still points ExecStart at /usr/bin/omarchy-crash-watch,
+// which Stage 3 already deleted (owned by the omarchy package) - the unit
+// crash-loops (203/EXEC) the instant it starts. The copy action must rewrite
+// ExecStart to the vendored path, not just relocate the unit file itself.
+func TestStage4Plan_KeptUnitExecStartPointsAtVendoredPath(t *testing.T) {
+	fake := system.NewFake()
+	cfg := config.Config{Home: "/home/james", VendorDir: "/home/james/dotfiles-omarchy"}
+
+	fake.SetCommand(system.CommandResult{ExitCode: 0, Stdout: "Name : omarchy-settings\nRequired By : None\n"}, "pacman", "-Qi", "omarchy-settings")
+	fake.SetCommand(system.CommandResult{ExitCode: 0, Stdout: "omarchy-settings /usr/lib/systemd/user/omarchy-crash-watch.service\n"}, "pacman", "-Ql", "omarchy-settings")
+	fake.Files["/usr/lib/systemd/user/omarchy-crash-watch.service"] = "[Service]\nExecStart=/usr/bin/omarchy-crash-watch\n"
+	fake.SetCommand(system.CommandResult{ExitCode: 0}, "systemctl", "--user", "daemon-reload")
+	fake.SetCommand(system.CommandResult{ExitCode: 0}, "systemctl", "--user", "enable", "--now", "omarchy-crash-watch.service")
+
+	actions, err := Stage4Plan(fake, cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var copyAction *plan.Action
+	for i := range actions {
+		if strings.Contains(actions[i].Description, "systemd --user units") {
+			copyAction = &actions[i]
+		}
+	}
+	if copyAction == nil {
+		t.Fatalf("no systemd unit copy action found among: %+v", actions)
+	}
+	if err := copyAction.Apply(fake); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	got := fake.Files["/home/james/.config/systemd/user/omarchy-crash-watch.service"]
+	if strings.Contains(got, "/usr/bin/omarchy-crash-watch") {
+		t.Errorf("copied unit still points at the deleted package path, got: %s", got)
+	}
+	if !strings.Contains(got, "/home/james/dotfiles-omarchy/bin/omarchy-crash-watch") {
+		t.Errorf("copied unit doesn't point at the vendored path, got: %s", got)
 	}
 }

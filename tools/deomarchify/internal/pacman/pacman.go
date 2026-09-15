@@ -4,6 +4,8 @@
 package pacman
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hamst/dotfiles/tools/deomarchify/internal/system"
@@ -14,6 +16,7 @@ type Info struct {
 	Name        string
 	Repository  string // empty when not from a synced repo (AUR/local build)
 	Depends     []string
+	Provides    []string
 	RequiredBy  []string
 	OptionalFor []string
 }
@@ -67,6 +70,8 @@ func ParseQi(output string) Info {
 			info.Repository = strings.TrimSpace(value)
 		case "Depends On":
 			info.Depends = parseList(value)
+		case "Provides":
+			info.Provides = parseList(value)
 		case "Required By":
 			info.RequiredBy = parseList(value)
 		case "Optional For":
@@ -128,4 +133,72 @@ func ParseQl(output string) []string {
 		out = append(out, path)
 	}
 	return out
+}
+
+// ParseQiAll parses the output of `pacman -Qi` run with no package name
+// argument, which dumps every installed package's info block separated by
+// a blank line.
+func ParseQiAll(output string) []Info {
+	var infos []Info
+	for _, block := range strings.Split(output, "\n\n") {
+		if strings.TrimSpace(block) == "" {
+			continue
+		}
+		infos = append(infos, ParseQi(block))
+	}
+	return infos
+}
+
+// AllInstalled runs and parses `pacman -Qi` with no arguments: every
+// installed package's Info, in one call.
+func AllInstalled(sys system.System) ([]Info, error) {
+	res, err := sys.Run("pacman", "-Qi")
+	if err != nil {
+		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("pacman -Qi failed: %s", res.Stderr)
+	}
+	return ParseQiAll(res.Stdout), nil
+}
+
+// ResolveInstalledNames maps each candidate package/dependency name to the
+// real installed package that satisfies it: itself, if something is
+// literally installed under that name, otherwise the first installed
+// package whose Provides list includes it (handles cases like an AUR
+// `quickshell-git` satisfying a `quickshell` dependency via `provides=`).
+// Candidates satisfied by nothing installed are returned separately rather
+// than silently dropped, so a caller can decide whether that's worth
+// surfacing instead of just losing protection for them.
+func ResolveInstalledNames(candidates []string, installed []Info) (resolved []string, unresolved []string) {
+	byName := map[string]bool{}
+	providesIndex := map[string]string{}
+	for _, info := range installed {
+		byName[info.Name] = true
+		for _, p := range info.Provides {
+			if _, exists := providesIndex[p]; !exists {
+				providesIndex[p] = info.Name
+			}
+		}
+	}
+
+	seen := map[string]bool{}
+	for _, c := range candidates {
+		var real string
+		switch {
+		case byName[c]:
+			real = c
+		case providesIndex[c] != "":
+			real = providesIndex[c]
+		default:
+			unresolved = append(unresolved, c)
+			continue
+		}
+		if !seen[real] {
+			seen[real] = true
+			resolved = append(resolved, real)
+		}
+	}
+	sort.Strings(resolved)
+	return resolved, unresolved
 }

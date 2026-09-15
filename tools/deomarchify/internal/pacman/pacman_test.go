@@ -119,3 +119,89 @@ func TestListFiles(t *testing.T) {
 		t.Errorf("got %d files, want 3: %v", len(files), files)
 	}
 }
+
+const qiAllFixture = `Name            : bash
+Version         : 5.2.037-1
+
+Name            : quickshell-git
+Version         : 0.2.0.r120-1
+Provides        : quickshell=0.2.0
+
+Name            : hyprland
+Version         : 0.45.0-1
+`
+
+func TestParseQiAll_SplitsOnBlankLines(t *testing.T) {
+	infos := ParseQiAll(qiAllFixture)
+	if len(infos) != 3 {
+		t.Fatalf("expected 3 packages, got %d: %+v", len(infos), infos)
+	}
+	names := []string{infos[0].Name, infos[1].Name, infos[2].Name}
+	want := []string{"bash", "quickshell-git", "hyprland"}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("names = %v, want %v", names, want)
+	}
+}
+
+func TestParseQiAll_ParsesProvidesWithVersionStripped(t *testing.T) {
+	infos := ParseQiAll(qiAllFixture)
+	var quickshell Info
+	for _, i := range infos {
+		if i.Name == "quickshell-git" {
+			quickshell = i
+		}
+	}
+	want := []string{"quickshell"}
+	if !reflect.DeepEqual(quickshell.Provides, want) {
+		t.Errorf("Provides = %v, want %v", quickshell.Provides, want)
+	}
+}
+
+func TestResolveInstalledNames_LiteralNameMatch(t *testing.T) {
+	installed := []Info{{Name: "hyprland"}, {Name: "sddm"}}
+	resolved, unresolved := ResolveInstalledNames([]string{"hyprland", "sddm"}, installed)
+
+	if !reflect.DeepEqual(resolved, []string{"hyprland", "sddm"}) {
+		t.Errorf("resolved = %v", resolved)
+	}
+	if len(unresolved) != 0 {
+		t.Errorf("unresolved = %v, want none", unresolved)
+	}
+}
+
+func TestResolveInstalledNames_ResolvesViaProvides(t *testing.T) {
+	installed := []Info{
+		{Name: "hyprland"},
+		{Name: "quickshell-git", Provides: []string{"quickshell"}},
+	}
+	resolved, unresolved := ResolveInstalledNames([]string{"hyprland", "quickshell"}, installed)
+
+	want := []string{"hyprland", "quickshell-git"}
+	if !reflect.DeepEqual(resolved, want) {
+		t.Errorf("resolved = %v, want %v", resolved, want)
+	}
+	if len(unresolved) != 0 {
+		t.Errorf("unresolved = %v, want none", unresolved)
+	}
+}
+
+func TestResolveInstalledNames_TrulyMissingGoesToUnresolved(t *testing.T) {
+	installed := []Info{{Name: "hyprland"}}
+	resolved, unresolved := ResolveInstalledNames([]string{"hyprland", "nothing-provides-this"}, installed)
+
+	if !reflect.DeepEqual(resolved, []string{"hyprland"}) {
+		t.Errorf("resolved = %v", resolved)
+	}
+	if !reflect.DeepEqual(unresolved, []string{"nothing-provides-this"}) {
+		t.Errorf("unresolved = %v", unresolved)
+	}
+}
+
+func TestResolveInstalledNames_DedupsWhenTwoCandidatesResolveToSameRealPackage(t *testing.T) {
+	installed := []Info{{Name: "quickshell-git", Provides: []string{"quickshell", "quickshell-lib"}}}
+	resolved, _ := ResolveInstalledNames([]string{"quickshell", "quickshell-lib"}, installed)
+
+	if !reflect.DeepEqual(resolved, []string{"quickshell-git"}) {
+		t.Errorf("resolved = %v, want deduped to just quickshell-git", resolved)
+	}
+}
