@@ -37,3 +37,13 @@
 	helper = !/usr/bin/gh auth git-credential
 [color]
 	ui = auto
+[core]
+	pager = delta
+	editor = nvim
+[interactive]
+	diffFilter = delta --color-only
+[delta]
+	navigate = true
+	dark = true
+[merge]
+	conflictStyle = zdiff3
